@@ -160,13 +160,3 @@ HTML Semântico + Components
 👨‍💻 Autor
 
 Desenvolvido por InNovaIdeia Assessoria em Tecnologia ®
-
-<div align="center">
-  <sub>
-    <div class="footer">
-        <p>Desenvolvido por Dione Castro Alves | © 2025 InNovaIdeia</p>
-        <p><a href="https://innovaideia-github-io.vercel.app" target="_blank">Visite meu portfólio</a></p>
-    </div>
-  </sub>
-</div>
-```

@@ -1,6 +1,6 @@
 """
 MVP Flask + Bootstrap — Diagnóstico de 10 Dias (InNovaIdeia)
-Versão: MVP 1.4 - Corrigido para modelos Gemini 2.5/2.0
+Versão: MVP 1.5 - Migrado para a Groq API (Llama 3.3)
 
 Instruções:
 1. Execute: python app_final.py
@@ -9,7 +9,7 @@ Instruções:
 from flask import Flask, request, render_template_string, redirect, url_for, session, jsonify
 from datetime import datetime
 import os
-import google.generativeai as genai
+from groq import Groq
 from markupsafe import escape
 from dotenv import load_dotenv
 
@@ -22,90 +22,84 @@ app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'fallback_secret_change_in_production')
 
 # ==========================================
-# 2. CONFIGURAÇÃO GEMINI PARA SUA CONTA ESPECÍFICA
+# 2. CONFIGURAÇÃO DA GROQ API
 # ==========================================
 
-#GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-GEMINI_API_KEY="AIzaSyAIqqiDHdJDw9To5PMBT9W9pvAdOey7LdY"
-GEMINI_ENABLED = False
-gemini_model = None
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+GROQ_ENABLED = False
+groq_client = None
+GROQ_MODEL = None
 
-if GEMINI_API_KEY and GEMINI_API_KEY.strip():
+# Modelos Groq em ordem de prioridade (do mais capaz ao mais rápido/barato).
+MODEL_PRIORITY = [
+    os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+    'llama-3.3-70b-versatile',
+    'llama-3.1-8b-instant',
+    'openai/gpt-oss-20b',
+]
+
+if GROQ_API_KEY and GROQ_API_KEY.strip():
     try:
-        print("🔄 Configurando Gemini API...")
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        # MODELOS DISPONÍVEIS NA SUA CONTA (baseado no seu log):
-        # gemini-2.5-flash, gemini-2.5-pro, gemini-2.0-flash-exp, gemini-2.0-flash, gemini-2.0-flash-001
-        
-        # Prioridade para sua conta específica
-        MODEL_PRIORITY = [
-            'models/gemini-2.0-flash',      # Modelo principal estável
-            'models/gemini-2.0-flash-001',  # Versão específica
-            'models/gemini-2.0-flash-exp',  # Experimental
-            'models/gemini-2.5-flash',      # Mais recente (pode ter cota diferente)
-            'models/gemini-2.5-pro',        # Pro (mais caro)
-        ]
-        
-        selected_model = None
-        
-        # Tentar cada modelo na ordem de prioridade
-        for model_name in MODEL_PRIORITY:
+        print("🔄 Configurando Groq API...")
+        groq_client = Groq(api_key=GROQ_API_KEY)
+
+        # Tentar cada modelo na ordem de prioridade, ignorando duplicatas.
+        for model_name in dict.fromkeys(MODEL_PRIORITY):
             try:
-                print(f"   Testando: {model_name.split('/')[-1]}...")
-                # Teste rápido do modelo
-                test_model = genai.GenerativeModel(model_name)
-                test_response = test_model.generate_content("Teste de conexão", safety_settings={
-                    'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
-                    'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
-                    'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
-                    'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'
-                })
-                
-                if test_response and test_response.text:
-                    gemini_model = test_model
-                    selected_model = model_name
-                    GEMINI_ENABLED = True
-                    print(f"✅ Modelo selecionado: {model_name.split('/')[-1]}")
+                print(f"   Testando: {model_name}...")
+                test_response = groq_client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": "Teste de conexão"}],
+                    max_tokens=8,
+                )
+
+                if test_response and test_response.choices:
+                    GROQ_MODEL = model_name
+                    GROQ_ENABLED = True
+                    print(f"✅ Modelo selecionado: {model_name}")
                     break
                 else:
-                    print(f"   ⚠️ Modelo sem resposta")
-                    
+                    print("   ⚠️ Modelo sem resposta")
+
             except Exception as model_error:
                 error_msg = str(model_error)
-                if "quota" in error_msg.lower() or "billing" in error_msg.lower():
-                    print(f"   ⚠️ {model_name.split('/')[-1]}: Cota excedida (pulando)")
-                elif "not found" in error_msg.lower():
-                    print(f"   ⚠️ {model_name.split('/')[-1]}: Não encontrado")
+                if "rate" in error_msg.lower() or "quota" in error_msg.lower():
+                    print(f"   ⚠️ {model_name}: Limite de uso excedido (pulando)")
+                elif "not found" in error_msg.lower() or "decommission" in error_msg.lower():
+                    print(f"   ⚠️ {model_name}: Não encontrado")
                 else:
-                    print(f"   ⚠️ {model_name.split('/')[-1]}: {error_msg[:60]}...")
+                    print(f"   ⚠️ {model_name}: {error_msg[:60]}...")
                 continue
-        
-        if not GEMINI_ENABLED:
-            print("❌ Nenhum modelo disponível com cota suficiente")
+
+        if not GROQ_ENABLED:
+            print("❌ Nenhum modelo Groq disponível")
             print("💡 Dicas:")
-            print("   - Verifique sua cota no Google AI Studio")
-            print("   - gemini-2.0-flash geralmente tem cota generosa")
-            print("   - Evite modelos 'preview' ou 'exp' que podem ter cota limitada")
-            
+            print("   - Verifique sua chave em https://console.groq.com/keys")
+            print("   - Confira os modelos ativos em https://console.groq.com/docs/models")
+
     except Exception as e:
         print(f"❌ Erro na configuração: {str(e)[:100]}")
-        GEMINI_ENABLED = False
+        GROQ_ENABLED = False
 else:
-    print("⚠️ Gemini API Key não encontrada no .env")
+    print("⚠️ Groq API Key não encontrada no .env")
+
+# Instrução de sistema comum a todas as gerações.
+SYSTEM_PROMPT = (
+    "Você é um consultor sênior de transformação digital. "
+    "Responda sempre em português do Brasil e retorne apenas HTML válido "
+    "formatado com classes do Bootstrap 5, sem blocos de código markdown."
+)
 
 # ==========================================
 # 3. CONFIGURAÇÃO DE FALLBACK (RESPOSTAS SIMULADAS)
 # ==========================================
 
-# Criar respostas simuladas para desenvolvimento
-class MockGeminiModel:
-    def generate_content(self, prompt, generation_config=None, safety_settings=None):
-        class MockResponse:
-            def __init__(self, text):
-                self.text = text
-                self.parts = [type('obj', (object,), {'text': text})()]
-        
+# Respostas simuladas para desenvolvimento (modo offline)
+def _mock_response_for(prompt):
+        """Gera HTML simulado com base no contexto do prompt."""
+        def MockResponse(text):
+            return text
+
         prompt_lower = prompt.lower()
         
         # Respostas simuladas baseadas no contexto
@@ -274,16 +268,50 @@ class MockGeminiModel:
             <div class="alert alert-info">
                 <h5><i class="bi bi-robot"></i> Análise Gerada por IA</h5>
                 <p>Esta é uma análise estratégica baseada nos dados fornecidos. Para personalização completa, 
-                configure sua chave API do Gemini no arquivo .env</p>
+                configure sua chave GROQ_API_KEY no arquivo .env</p>
                 <small class="text-muted">Modo de desenvolvimento: respostas simuladas para demonstração</small>
             </div>
             """)
 
-# Usar modelo mock se o real não estiver disponível
-if not GEMINI_ENABLED:
+
+class _MockMessage:
+    def __init__(self, content):
+        self.content = content
+
+
+class _MockChoice:
+    def __init__(self, content):
+        self.message = _MockMessage(content)
+
+
+class _MockCompletion:
+    def __init__(self, content):
+        self.choices = [_MockChoice(content)]
+
+
+class _MockCompletionsAPI:
+    def create(self, model=None, messages=None, temperature=None, max_tokens=None, **kwargs):
+        prompt = " ".join(m.get("content", "") for m in (messages or []))
+        return _MockCompletion(_mock_response_for(prompt))
+
+
+class _MockChatAPI:
+    def __init__(self):
+        self.completions = _MockCompletionsAPI()
+
+
+class MockGroqClient:
+    """Cliente Groq simulado, usado quando não há GROQ_API_KEY válida."""
+    def __init__(self):
+        self.chat = _MockChatAPI()
+
+
+# Usar cliente mock se o real não estiver disponível
+if not GROQ_ENABLED:
     print("🔧 Usando modo de desenvolvimento com respostas simuladas")
-    gemini_model = MockGeminiModel()
-    GEMINI_ENABLED = True  # Para a interface funcionar
+    groq_client = MockGroqClient()
+    GROQ_MODEL = "mock"
+    GROQ_ENABLED = True  # Para a interface funcionar
 
 # ==========================================
 # 4. FUNÇÕES AUXILIARES
@@ -316,53 +344,48 @@ def clean_ai_response(text):
     
     return text
 
-def generate_with_gemini(prompt, temperature=0.7):
-    """Gera conteúdo usando Gemini ou fallback"""
-    if not GEMINI_ENABLED or not gemini_model:
+def generate_with_groq(prompt, temperature=0.7):
+    """Gera conteúdo usando a Groq API ou o fallback simulado."""
+    if not GROQ_ENABLED or not groq_client:
         return "<div class='alert alert-danger'>IA não disponível</div>"
-    
+
     try:
-        # Configurações de segurança relaxadas para desenvolvimento
-        safety_settings = {
-            'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE',
-            'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE',
-            'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE',
-            'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'
-        }
-        
-        # Gerar conteúdo
-        response = gemini_model.generate_content(
-            prompt,
-            generation_config={'temperature': temperature} if temperature else None,
-            safety_settings=safety_settings
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
         )
-        
-        return clean_ai_response(response)
-        
+
+        return clean_ai_response(response.choices[0].message.content)
+
     except Exception as e:
         error_msg = str(e)
         print(f"⚠️ Erro na geração: {error_msg[:100]}")
-        
-        # Se for erro de cota, mostra mensagem específica
-        if "quota" in error_msg.lower() or "billing" in error_msg.lower():
-            return f'''
+
+        # Se for erro de limite de uso, mostra mensagem específica
+        if "rate" in error_msg.lower() or "quota" in error_msg.lower():
+            return '''
             <div class="alert alert-warning">
-                <h5><i class="bi bi-coin"></i> Cota da API Excedida</h5>
-                <p>Sua cota para este modelo do Gemini foi excedida.</p>
+                <h5><i class="bi bi-coin"></i> Limite da API Excedido</h5>
+                <p>O limite de uso do modelo Groq foi atingido.</p>
                 <ul class="small">
-                    <li>Verifique seu uso no <a href="https://aistudio.google.com/" target="_blank">Google AI Studio</a></li>
-                    <li>Use um modelo diferente (gemini-2.0-flash tem cota generosa)</li>
+                    <li>Verifique seu uso no <a href="https://console.groq.com/" target="_blank">Groq Console</a></li>
+                    <li>Aguarde alguns instantes ou troque de modelo (GROQ_MODEL)</li>
                     <li>Esta aplicação continuará funcionando em modo de demonstração</li>
                 </ul>
             </div>
             '''
-        
+
         return f'''
         <div class="alert alert-danger">
             <i class="bi bi-exclamation-triangle"></i> Erro: {error_msg[:80]}...
             <br><small>Clique em "Regenerar" para tentar novamente</small>
         </div>
         '''
+
 
 # ==========================================
 # 5. RESTANTE DO CÓDIGO (MANTIDO IGUAL)
@@ -599,10 +622,10 @@ def home():
     
     # Status da IA
     ai_status = ""
-    if not GEMINI_ENABLED:
+    if GROQ_MODEL == "mock":
         ai_status = '''<div class="alert alert-info">
             <i class="bi bi-info-circle"></i> <strong>Modo de Demonstração</strong>
-            <p class="mb-0 small">Usando respostas simuladas. Configure sua chave Gemini 2.0/2.5 no arquivo .env para IA real.</p>
+            <p class="mb-0 small">Usando respostas simuladas. Configure sua chave GROQ_API_KEY no arquivo .env para IA real.</p>
         </div>'''
     
     body = f'''
@@ -695,7 +718,7 @@ def scope():
     
     data = session['client_data']
     
-    # Prompt otimizado para Gemini 2.0/2.5
+    # Prompt otimizado para a Groq API
     prompt = f"""
     Como consultor sênior de transformação digital, crie 5 metas SMART específicas para:
     
@@ -721,7 +744,7 @@ def scope():
     <p class="text-muted"><small>Nota: Estas metas são alcançáveis com a estratégia proposta.</small></p>
     """
     
-    content = generate_with_gemini(prompt)
+    content = generate_with_groq(prompt)
     
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -780,7 +803,7 @@ def map_systems():
     - Inclua sistemas comuns do setor {data['industry']}
     """
     
-    content = generate_with_gemini(prompt)
+    content = generate_with_groq(prompt)
     
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -837,7 +860,7 @@ def roi():
     Use formatação Bootstrap e seja realista com o setor {data['industry']}.
     """
     
-    content = generate_with_gemini(prompt)
+    content = generate_with_groq(prompt)
     
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -897,7 +920,7 @@ def roadmap():
     Use classes Bootstrap como: row, col-md-4, card, card-header, card-body
     """
     
-    content = generate_with_gemini(prompt)
+    content = generate_with_groq(prompt)
     
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -960,7 +983,7 @@ def brief():
     Inclua {data['industry']}, {data['area']}, {data['objective']} no contexto.
     """
     
-    content = generate_with_gemini(prompt, temperature=0.5)
+    content = generate_with_groq(prompt, temperature=0.5)
     
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4 no-print">
@@ -1055,7 +1078,7 @@ def api_regenerate():
     if section not in prompts:
         return jsonify({'error': 'Seção inválida'}), 400
         
-    content = generate_with_gemini(prompts[section])
+    content = generate_with_groq(prompts[section])
     
     if content and "alert alert-danger" not in content:
         return jsonify({'content': content})
@@ -1067,12 +1090,12 @@ if __name__ == '__main__':
     print("🚀 DIAGNÓSTICO EMPRESARIAL 10 DIAS - MVP 1.4")
     print("="*60)
     
-    if GEMINI_ENABLED:
-        print("✅ IA Gemini disponível")
-        print("📊 Modelos configurados para Gemini 2.0/2.5")
+    if GROQ_ENABLED and GROQ_MODEL != "mock":
+        print("✅ IA Groq disponível")
+        print(f"📊 Modelo ativo: {GROQ_MODEL}")
     else:
         print("🔧 Modo de desenvolvimento ativo")
-        print("💡 Para IA real, configure sua chave Gemini no arquivo .env")
+        print("💡 Para IA real, configure sua chave GROQ_API_KEY no arquivo .env")
     
     print(f"\n🌐 Acesse: http://127.0.0.1:5000")
     print("="*60 + "\n")

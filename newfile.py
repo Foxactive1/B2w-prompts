@@ -1,11 +1,11 @@
 """
 MVP Flask + Bootstrap — Diagnóstico de 10 Dias
-Versão com API Gemini AI Integrada
+Versão com API Groq Integrada
 
 Como usar:
 1. Crie um virtualenv: python -m venv venv
-2. Ative e instale: pip install flask google-generativeai python-dotenv
-3. Crie um arquivo .env com: GEMINI_API_KEY=sua_chave_aqui
+2. Ative e instale: pip install -r requirements.txt
+3. Crie um arquivo .env com: GROQ_API_KEY=sua_chave_aqui
 4. Execute: python app.py
 5. Abra: http://127.0.0.1:5000
 """
@@ -14,7 +14,7 @@ from flask import Flask, request, render_template_string, redirect, url_for, ses
 from datetime import datetime
 import re
 import os
-import google.generativeai as genai
+from groq import Groq
 from markupsafe import escape
 from dotenv import load_dotenv
 
@@ -24,15 +24,16 @@ load_dotenv('.env')
 app = Flask(__name__)
 app.secret_key = 'diagnostico10dias_innovaideia_2024'
 
-# Configurar Gemini AI
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    gemini_model = genai.GenerativeModel('gemini-pro')
-    GEMINI_ENABLED = True
+# Configurar Groq API
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
+groq_client = None
+if GROQ_API_KEY and GROQ_API_KEY.strip():
+    groq_client = Groq(api_key=GROQ_API_KEY)
+    GROQ_ENABLED = True
 else:
-    GEMINI_ENABLED = False
-    print("⚠️  Gemini API Key não encontrada. Configure GEMINI_API_KEY no arquivo .env")
+    GROQ_ENABLED = False
+    print("⚠️  Groq API Key não encontrada. Configure GROQ_API_KEY no arquivo .env")
 
 BOOTSTRAP_CDN = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
 ICONS_CDN = "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
@@ -311,9 +312,9 @@ BASE_HTML_TEMPLATE = '''
           }});
         }}
 
-        // Configurar botões de geração com Gemini
-        const geminiButtons = document.querySelectorAll('.btn-gemini');
-        geminiButtons.forEach(button => {{
+        // Configurar botões de geração com Groq
+        const groqButtons = document.querySelectorAll('.btn-groq');
+        groqButtons.forEach(button => {{
           button.addEventListener('click', function(e) {{
             const spinner = this.querySelector('.loading-spinner');
             const icon = this.querySelector('i:not(.loading-spinner)');
@@ -325,7 +326,7 @@ BASE_HTML_TEMPLATE = '''
               if (icon) icon.style.display = 'none';
             }}
             this.disabled = true;
-            this.innerHTML = this.innerHTML.replace('Gerar com Gemini', 'Gerando...');
+            this.innerHTML = this.innerHTML.replace('Gerar com Groq', 'Gerando...');
             
             // Simular delay para feedback visual
             setTimeout(() => {{
@@ -337,7 +338,7 @@ BASE_HTML_TEMPLATE = '''
               this.disabled = false;
               this.classList.remove('btn-warning');
               this.classList.add('btn-success');
-              this.innerHTML = this.innerHTML.replace('Gerar com Gemini', '<i class="bi bi-check-circle me-1"></i>Gerado');
+              this.innerHTML = this.innerHTML.replace('Gerar com Groq', '<i class="bi bi-check-circle me-1"></i>Gerado');
             }}, 2000);
           }});
         }});
@@ -377,27 +378,28 @@ def render_page(title, body_html, current_step='home'):
     
     return render_template_string(html_content)
 
-def generate_with_gemini(prompt, temperature=0.7):
-    """Gera conteúdo usando a API do Gemini AI"""
-    if not GEMINI_ENABLED:
+def generate_with_groq(prompt, temperature=0.7):
+    """Gera conteúdo usando a Groq API"""
+    if not GROQ_ENABLED or not groq_client:
         return None
     
     try:
-        response = gemini_model.generate_content(
-            prompt,
-            generation_config={
-                'temperature': temperature,
-                'top_p': 0.8,
-                'top_k': 40,
-            }
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": "Você é um consultor de transformação digital. Responda em português do Brasil."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
+            top_p=0.8,
         )
-        return response.text
+        return response.choices[0].message.content
     except Exception as e:
-        print(f"Erro ao gerar com Gemini: {e}")
+        print(f"Erro ao gerar com Groq: {e}")
         return None
 
 def generate_smart_goals(data):
-    """Gera metas SMART personalizadas com Gemini"""
+    """Gera metas SMART personalizadas com Groq"""
     prompt = f"""Como consultor especializado em diagnóstico empresarial, crie 5 metas SMART específicas para um cliente com as seguintes características:
 
 Cliente: {data['client_name']}
@@ -416,11 +418,11 @@ As metas devem ser:
 
 Formate a resposta como uma lista numerada, cada meta em uma linha, em português do Brasil."""
     
-    result = generate_with_gemini(prompt)
+    result = generate_with_groq(prompt)
     if result:
         return [goal.strip() for goal in result.split('\n') if goal.strip() and goal.strip()[0].isdigit()]
     else:
-        # Fallback se Gemini não estiver disponível
+        # Fallback se a Groq não estiver disponível
         return [
             f"Identificar as 3 principais causas-raiz relacionadas a '{data['area']}' em 10 dias úteis",
             f"Quantificar o impacto financeiro atual do problema (em R$) até o 5º dia do diagnóstico",
@@ -430,7 +432,7 @@ Formate a resposta como uma lista numerada, cada meta em uma linha, em portuguê
         ]
 
 def generate_systems_map(data):
-    """Gera análise de sistemas com Gemini"""
+    """Gera análise de sistemas com Groq"""
     prompt = f"""Como arquiteto de sistemas, analise os possíveis sistemas envolvidos no problema do cliente:
 
 Cliente: {data['client_name']}
@@ -446,20 +448,20 @@ Faça uma análise incluindo:
 
 Formate como HTML básico com títulos e listas."""
     
-    result = generate_with_gemini(prompt, temperature=0.8)
+    result = generate_with_groq(prompt, temperature=0.8)
     if result:
         return result
     else:
         return """
         <div class="alert alert-info">
           <h6><i class="bi bi-info-circle me-2"></i>Análise de Sistemas</h6>
-          <p>Para uma análise detalhada dos sistemas, configure a chave da API Gemini no arquivo .env</p>
+          <p>Para uma análise detalhada dos sistemas, configure a chave da API Groq no arquivo .env</p>
           <p>Setor identificado: <strong>{}</strong></p>
         </div>
         """.format(data['industry'])
 
 def generate_roi_analysis(data):
-    """Gera análise de ROI com Gemini"""
+    """Gera análise de ROI com Groq"""
     prompt = f"""Como analista financeiro, crie uma análise de ROI (Return on Investment) para:
 
 Cliente: {data['client_name']}
@@ -477,19 +479,19 @@ Forneça:
 
 Formate como HTML com classes Bootstrap básicas."""
     
-    result = generate_with_gemini(prompt, temperature=0.6)
+    result = generate_with_groq(prompt, temperature=0.6)
     if result:
         return result
     else:
         return """
         <div class="alert alert-info">
           <h6><i class="bi bi-currency-exchange me-2"></i>Análise de ROI</h6>
-          <p>Configure a API do Gemini para obter uma análise personalizada de ROI.</p>
+          <p>Configure a API do Groq para obter uma análise personalizada de ROI.</p>
         </div>
         """
 
 def generate_roadmap(data):
-    """Gera roadmap estratégico com Gemini"""
+    """Gera roadmap estratégico com Groq"""
     prompt = f"""Como gerente de projetos, crie um roadmap 30-60-90 dias para:
 
 Cliente: {data['client_name']}
@@ -506,19 +508,19 @@ Estruture em:
 
 Formate como HTML com timeline visual."""
     
-    result = generate_with_gemini(prompt, temperature=0.7)
+    result = generate_with_groq(prompt, temperature=0.7)
     if result:
         return result
     else:
         return """
         <div class="alert alert-info">
           <h6><i class="bi bi-map me-2"></i>Roadmap Estratégico</h6>
-          <p>Roadmap personalizado disponível com a integração do Gemini AI.</p>
+          <p>Roadmap personalizado disponível com a integração do Groq AI.</p>
         </div>
         """
 
 def generate_executive_brief(data):
-    """Gera brief executivo com Gemini"""
+    """Gera brief executivo com Groq"""
     prompt = f"""Crie um brief executivo profissional para o diagnóstico:
 
 CLIENTE: {data['client_name']}
@@ -538,7 +540,7 @@ Inclua:
 
 Formate como documento executivo em português do Brasil."""
     
-    result = generate_with_gemini(prompt, temperature=0.5)
+    result = generate_with_groq(prompt, temperature=0.5)
     if result:
         return result
     else:
@@ -547,7 +549,7 @@ Formate como documento executivo em português do Brasil."""
         <p class="text-muted">Diagnóstico Estratégico de 10 Dias | {datetime.now().strftime('%d de %B de %Y')}</p>
         <div class="alert alert-warning">
           <h6><i class="bi bi-exclamation-triangle me-2"></i>Brief Base</h6>
-          <p>Para um brief executivo personalizado com IA, configure a API do Gemini.</p>
+          <p>Para um brief executivo personalizado com IA, configure a API do Groq.</p>
         </div>
         """
 
@@ -560,10 +562,10 @@ HOME_BODY = '''
       <div class="text-center mb-4">
         <h4><i class="bi bi-clipboard2-plus text-primary me-2"></i>Novo Diagnóstico</h4>
         <p class="text-muted">Preencha os dados do cliente para gerar um diagnóstico completo</p>
-        {% if GEMINI_ENABLED %}
-        <span class="ai-badge"><i class="bi bi-cpu me-1"></i>Gemini AI Ativo</span>
+        {% if GROQ_ENABLED %}
+        <span class="ai-badge"><i class="bi bi-cpu me-1"></i>Groq AI Ativo</span>
         {% else %}
-        <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>Gemini AI Não Configurado</span>
+        <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>Groq AI Não Configurado</span>
         {% endif %}
       </div>
       
@@ -694,7 +696,7 @@ HOME_BODY = '''
               <i class="bi bi-bar-chart text-primary fs-4"></i>
             </div>
             <h6>2. Análise IA</h6>
-            <p class="small text-muted mb-0">Gemini AI analisa dados e gera insights personalizados</p>
+            <p class="small text-muted mb-0">Groq AI analisa dados e gera insights personalizados</p>
           </div>
         </div>
         <div class="col-md-4 mb-3">
@@ -715,10 +717,10 @@ HOME_BODY = '''
 @app.route('/')
 def home():
     session.clear()
-    # Passar variável para template saber se Gemini está ativo
-    home_body_with_gemini = HOME_BODY.replace('{% if GEMINI_ENABLED %}', 
-                                              f'{{% if {str(GEMINI_ENABLED).lower()} %}}')
-    return render_page('Diagnóstico 10 Dias — Início', home_body_with_gemini, 'home')
+    # Passar variável para template saber se a IA está ativa
+    home_body_with_ai = HOME_BODY.replace('{% if GROQ_ENABLED %}', 
+                                          f'{{% if {str(GROQ_ENABLED).lower()} %}}')
+    return render_page('Diagnóstico 10 Dias — Início', home_body_with_ai, 'home')
 
 @app.route('/create', methods=['POST'])
 def create():
@@ -764,7 +766,7 @@ def scope():
     
     data = session['client_data']
     
-    # Gerar metas SMART com Gemini
+    # Gerar metas SMART com Groq
     smart_goals = generate_smart_goals(data)
     
     body = f"""
@@ -777,8 +779,8 @@ def scope():
         <span class="badge bg-primary fs-6">{data['timeline']} dias</span>
       </div>
       <div class="mt-2">
-        <button class="btn btn-sm btn-warning btn-gemini" id="regenerateScope">
-          <i class="bi bi-arrow-clockwise me-1"></i>Regenerar com Gemini
+        <button class="btn btn-sm btn-warning btn-groq" id="regenerateScope">
+          <i class="bi bi-arrow-clockwise me-1"></i>Regenerar com Groq
           <span class="loading-spinner ms-1"></span>
         </button>
       </div>
@@ -810,15 +812,15 @@ def map_systems():
     
     data = session['client_data']
     
-    # Gerar análise de sistemas com Gemini
+    # Gerar análise de sistemas com Groq
     systems_analysis = generate_systems_map(data)
     
     body = f"""
     <div class="mb-4">
       <div class="d-flex justify-content-between align-items-start">
         <h5>Mapa de Sistemas Atual</h5>
-        <button class="btn btn-sm btn-warning btn-gemini" id="regenerateSystems">
-          <i class="bi bi-arrow-clockwise me-1"></i>Analisar com Gemini
+        <button class="btn btn-sm btn-warning btn-groq" id="regenerateSystems">
+          <i class="bi bi-arrow-clockwise me-1"></i>Analisar com Groq
           <span class="loading-spinner ms-1"></span>
         </button>
       </div>
@@ -848,15 +850,15 @@ def roi():
     
     data = session['client_data']
     
-    # Gerar análise de ROI com Gemini
+    # Gerar análise de ROI com Groq
     roi_analysis = generate_roi_analysis(data)
     
     body = f"""
     <div class="mb-4">
       <div class="d-flex justify-content-between align-items-start">
         <h5>Mapa de Calor de ROI</h5>
-        <button class="btn btn-sm btn-warning btn-gemini" id="regenerateROI">
-          <i class="bi bi-arrow-clockwise me-1"></i>Calcular com Gemini
+        <button class="btn btn-sm btn-warning btn-groq" id="regenerateROI">
+          <i class="bi bi-arrow-clockwise me-1"></i>Calcular com Groq
           <span class="loading-spinner ms-1"></span>
         </button>
       </div>
@@ -886,15 +888,15 @@ def roadmap():
     
     data = session['client_data']
     
-    # Gerar roadmap com Gemini
+    # Gerar roadmap com Groq
     roadmap_content = generate_roadmap(data)
     
     body = f"""
     <div class="mb-4">
       <div class="d-flex justify-content-between align-items-start">
         <h5>Roadmap Estratégico</h5>
-        <button class="btn btn-sm btn-warning btn-gemini" id="regenerateRoadmap">
-          <i class="bi bi-arrow-clockwise me-1"></i>Gerar com Gemini
+        <button class="btn btn-sm btn-warning btn-groq" id="regenerateRoadmap">
+          <i class="bi bi-arrow-clockwise me-1"></i>Gerar com Groq
           <span class="loading-spinner ms-1"></span>
         </button>
       </div>
@@ -924,7 +926,7 @@ def brief():
     
     data = session['client_data']
     
-    # Gerar brief executivo com Gemini
+    # Gerar brief executivo com Groq
     brief_content = generate_executive_brief(data)
     
     body = f"""
@@ -933,8 +935,8 @@ def brief():
         {brief_content}
       </div>
       <div class="text-center mt-3">
-        <button class="btn btn-warning btn-gemini" id="regenerateBrief">
-          <i class="bi bi-magic me-1"></i>Reescrever com Gemini
+        <button class="btn btn-warning btn-groq" id="regenerateBrief">
+          <i class="bi bi-magic me-1"></i>Reescrever com Groq
           <span class="loading-spinner ms-1"></span>
         </button>
       </div>
@@ -960,7 +962,7 @@ def brief():
 # ---------- API Endpoint para regeneração ----------
 @app.route('/api/regenerate', methods=['POST'])
 def api_regenerate():
-    """Endpoint para regenerar conteúdo com Gemini"""
+    """Endpoint para regenerar conteúdo com Groq"""
     if 'client_data' not in session:
         return {'error': 'Dados do cliente não encontrados'}, 400
     
@@ -970,8 +972,8 @@ def api_regenerate():
     if not section:
         return {'error': 'Seção não especificada'}, 400
     
-    if not GEMINI_ENABLED:
-        return {'error': 'Gemini AI não configurado'}, 503
+    if not GROQ_ENABLED:
+        return {'error': 'Groq AI não configurado'}, 503
     
     try:
         if section == 'scope':

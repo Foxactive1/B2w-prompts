@@ -1,10 +1,10 @@
 
 
 ## 🧠 Diagnóstico Empresarial 10 Dias — InNovaIdeia  
-**MVP 1.4 — Flask + Bootstrap + Gemini 2.0/2.5 (com fallback offline)**
+**MVP 1.5 — Flask + Bootstrap + Groq API (Llama 3.3, com fallback offline)**
 
 Sistema web inteligente projetado para gerar análises empresariais completas em minutos.  
-Inclui: metas SMART, mapeamento de sistemas, ROI, roadmap de 180 dias e brief executivo final — tudo gerado automaticamente via IA (Gemini) ou via modo *Mock* offline.
+Inclui: metas SMART, mapeamento de sistemas, ROI, roadmap de 180 dias e brief executivo final — tudo gerado automaticamente via IA (Groq) ou via modo *Mock* offline.
 
 ---
 
@@ -12,7 +12,7 @@ Inclui: metas SMART, mapeamento de sistemas, ROI, roadmap de 180 dias e brief ex
 
 - ✔ Diagnóstico empresarial completo em 6 passos  
 - ✔ Formulários limpos e responsivos (Bootstrap 5)  
-- ✔ IA Gemini 2.0/2.5 integrada com fallback automático offline  
+- ✔ IA Groq (Llama 3.3) integrada com fallback automático offline  
 - ✔ Regeneração de conteúdo com IA (AJAX + endpoint `/api/regenerate`)  
 - ✔ Visual corporativo com stepper, cards compactos e UI moderna  
 - ✔ Exportação do relatório final em PDF via impressão  
@@ -35,7 +35,7 @@ Inclui: metas SMART, mapeamento de sistemas, ROI, roadmap de 180 dias e brief ex
 ```txt
 Flask
 python-dotenv
-google-generativeai
+groq
 markupsafe
 
 
@@ -43,12 +43,17 @@ markupsafe
 
 ⚙️ Configuração das Variáveis de Ambiente
 
-Crie um arquivo .env:
+Copie `.env.example` para `.env` e preencha:
 
 SECRET_KEY=sua_chave_secreta_aqui
-GEMINI_API_KEY=sua_api_key_google_aqui
+GROQ_API_KEY=sua_api_key_groq_aqui
+GROQ_MODEL=llama-3.3-70b-versatile   # opcional
 
-Se GEMINI_API_KEY não estiver configurada, o sistema opera automaticamente em modo de desenvolvimento (Mock AI), garantindo que nada quebre.
+Obtenha sua chave em https://console.groq.com/keys
+
+Se GROQ_API_KEY não estiver configurada, o sistema opera automaticamente em modo de desenvolvimento (Mock AI), garantindo que nada quebre.
+
+> ⚠️ Nunca faça commit do arquivo `.env` — ele já está no `.gitignore`.
 
 
 ---
@@ -95,9 +100,9 @@ Rota	Função
 
 🤖 Sobre o Modo Mock (Offline)
 
-Se a chave do Gemini não estiver configurada, o sistema entra no modo:
+Se a chave da Groq não estiver configurada, o sistema entra no modo:
 
-🔧 MockGeminiModel — IA simulada
+🔧 MockGroqClient — IA simulada
 
 Ele retorna:
 
@@ -137,7 +142,7 @@ Bootstrap 5 — UI responsiva
 
 Bootstrap Icons — Ícones modernos
 
-Gemini 2.0/2.5 — IA generativa integrada
+Groq API (Llama 3.3) — IA generativa integrada
 
 Mock AI — fallback automático
 

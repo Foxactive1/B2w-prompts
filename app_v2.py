@@ -1,17 +1,17 @@
 """
 MVP Flask + Bootstrap — Diagnóstico de 10 Dias (InNovaIdeia)
-Versão: MVP 1.1 - Modelo Gemini Flash Latest
+Versão: MVP 1.1 - Migrado para a Groq API
 
 Instruções:
-1. Instale: pip install flask google-generativeai python-dotenv
-2. Configure seu .env com GEMINI_API_KEY=...
+1. Instale: pip install -r requirements.txt
+2. Configure seu .env com GROQ_API_KEY=...
 3. Execute: python app.py
 """
 
 from flask import Flask, request, render_template_string, redirect, url_for, session, jsonify
 from datetime import datetime
 import os
-import google.generativeai as genai
+from groq import Groq
 from markupsafe import escape
 from dotenv import load_dotenv
 
@@ -22,28 +22,21 @@ app = Flask(__name__)
 # Em produção, use uma chave aleatória fixa
 app.secret_key = os.getenv('SECRET_KEY', 'diagnostico_innovaideia_dev_secret')
 
-# Configurar Gemini AI
-#GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+# Configurar Groq API
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')
+GROQ_ENABLED = False
+groq_client = None
 
-GEMINI_API_KEY="AIzaSyAIqqiDHdJDw9To5PMBT9W9pvAdOey7LdY"
-GEMINI_ENABLED = False
-
-if GEMINI_API_KEY:
+if GROQ_API_KEY and GROQ_API_KEY.strip():
     try:
-        genai.configure(api_key=GEMINI_API_KEY)
-        
-        # ---------------------------------------------------------
-        # ATUALIZAÇÃO: Usando o modelo 'gemini-1.5-flash-latest'
-        # Isso garante o uso da versão mais recente e otimizada.
-        # ---------------------------------------------------------
-        gemini_model = genai.GenerativeModel('gemini-pro')
-        
-        GEMINI_ENABLED = True
-        print(f"✅ Gemini API Configurada. Modelo: gemini-pro")
+        groq_client = Groq(api_key=GROQ_API_KEY)
+        GROQ_ENABLED = True
+        print(f"✅ Groq API configurada. Modelo: {GROQ_MODEL}")
     except Exception as e:
-        print(f"⚠️ Erro ao configurar Gemini: {e}")
+        print(f"⚠️ Erro ao configurar Groq: {e}")
 else:
-    print("⚠️ Gemini API Key não encontrada no .env")
+    print("⚠️ Groq API Key não encontrada no .env")
 
 BOOTSTRAP_CDN = "https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
 ICONS_CDN = "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css"
@@ -203,7 +196,7 @@ BASE_HTML_TEMPLATE = '''
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-      // Função Genérica para chamar a API Flask -> Gemini
+      // Função Genérica para chamar a API Flask -> Groq
       async function regenerateContent(sectionId, targetDivId, btnElement) {{
         const originalText = btnElement.innerHTML;
         const spinner = btnElement.querySelector('.loading-spinner');
@@ -268,22 +261,26 @@ BASE_HTML_TEMPLATE = '''
 # ==========================================
 
 def clean_ai_response(text):
-    """Remove blocos de markdown ```html ou ``` que o Gemini possa retornar"""
+    """Remove blocos de markdown ```html ou ``` que a IA possa retornar"""
     if not text: return ""
     text = text.replace("```html", "").replace("```", "")
     return text.strip()
 
-def generate_with_gemini(prompt, temperature=0.7):
-    if not GEMINI_ENABLED:
+def generate_with_groq(prompt, temperature=0.7):
+    if not GROQ_ENABLED or not groq_client:
         return None
     try:
-        response = gemini_model.generate_content(
-            prompt,
-            generation_config={'temperature': temperature}
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {"role": "system", "content": "Você é um consultor de transformação digital. Responda em português do Brasil e retorne apenas HTML válido."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=temperature,
         )
-        return clean_ai_response(response.text)
+        return clean_ai_response(response.choices[0].message.content)
     except Exception as e:
-        print(f"Erro Gemini: {e}")
+        print(f"Erro Groq: {e}")
         return f"<div class='alert alert-danger'>Erro na geração IA: {str(e)}</div>"
 
 # ==========================================
@@ -319,7 +316,7 @@ def home():
           <div class="text-center mb-5">
             <h2 class="fw-bold text-primary">Diagnóstico Empresarial IA</h2>
             <p class="text-muted">Gere um plano de transformação de 10 dias em segundos.</p>
-            { "" if GEMINI_ENABLED else '<div class="alert alert-warning">⚠️ API Key não configurada. Modo Offline.</div>' }
+            { "" if GROQ_ENABLED else '<div class="alert alert-warning">⚠️ API Key não configurada. Modo Offline.</div>' }
           </div>
           
           <form method="post" action="/create" class="needs-validation" novalidate>
@@ -402,7 +399,7 @@ def scope():
     Não use markdown, apenas tags HTML.
     """
     
-    content = generate_with_gemini(prompt) or "<p>IA Indisponível. Defina as metas manualmente.</p>"
+    content = generate_with_groq(prompt) or "<p>IA Indisponível. Defina as metas manualmente.</p>"
     
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -432,7 +429,7 @@ def map_systems():
     Sistema Provável | Função | Possível Gargalo.
     Apenas HTML.
     """
-    content = generate_with_gemini(prompt) or "<p>Conteúdo indisponível.</p>"
+    content = generate_with_groq(prompt) or "<p>Conteúdo indisponível.</p>"
 
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -463,7 +460,7 @@ def roi():
     2. <div class='alert alert-success'> (Destaque do valor potencial)
     3. Lista de benefícios intangíveis.
     """
-    content = generate_with_gemini(prompt) or "<p>Conteúdo indisponível.</p>"
+    content = generate_with_groq(prompt) or "<p>Conteúdo indisponível.</p>"
 
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -491,7 +488,7 @@ def roadmap():
     Crie um Roadmap de 3 fases (Curto, Médio, Longo Prazo) para atingir: {data['objective']}.
     Retorne HTML estruturado com cards ou lista bootstrap para cada fase.
     """
-    content = generate_with_gemini(prompt) or "<p>Conteúdo indisponível.</p>"
+    content = generate_with_groq(prompt) or "<p>Conteúdo indisponível.</p>"
 
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4">
@@ -520,7 +517,7 @@ def brief():
     Resuma o problema, a solução proposta e o impacto esperado.
     Use tom formal e persuasivo. Formate com HTML (h2, p, strong).
     """
-    content = generate_with_gemini(prompt, temperature=0.5) or "<p>Conteúdo indisponível.</p>"
+    content = generate_with_groq(prompt, temperature=0.5) or "<p>Conteúdo indisponível.</p>"
 
     body = f"""
     <div class="d-flex justify-content-between align-items-center mb-4 no-print">
@@ -582,7 +579,7 @@ def api_regenerate():
     if section not in prompts:
         return jsonify({'error': 'Seção inválida'}), 400
         
-    content = generate_with_gemini(prompts[section])
+    content = generate_with_groq(prompts[section])
     
     if content:
         return jsonify({'content': content})

@@ -1,0 +1,32 @@
+# Ambiente / segredos
+.env
+ .env
+*.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtualenv
+venv/
+.venv/
+env/
+ENV/
+
+# Ferramentas / IDE
+.vscode/
+.idea/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# SO
+.DS_Store
+Thumbs.db
